@@ -840,7 +840,7 @@ namespace Dapper
             props = props.Where(p => p.GetCustomAttributes(true).Any(attr => attr.GetType().Name == typeof(EditableAttribute).Name && !IsEditable(p)) == false);
 
 
-            return props.Where(p => p.PropertyType.IsSimpleType() || IsEditable(p));
+            return props.Where(p => p.PropertyType.IsSimpleType() || IsEditable(p));//这里是关键的修改
         }
 
         //Determine if the Attribute has an AllowEdit key and return its boolean state
