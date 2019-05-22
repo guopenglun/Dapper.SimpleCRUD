@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Diagnostics;
@@ -226,7 +226,7 @@ namespace Dapper
         /// <returns>The ID (primary key) of the newly inserted record if it is identity using the int? type, otherwise null</returns>
         public static Task<int?> InsertAsync<TEntity>(this IDbConnection connection, TEntity entityToInsert, IDbTransaction transaction = null, int? commandTimeout = null)
         {
-            return InsertAsync<int?, TEntity>(connection, entityToInsert, transaction, commandTimeout);
+            return InsertAsync<int?, TEntity>(connection, entityToInsert, transaction: transaction, commandTimeout: commandTimeout);
         }
 
         /// <summary>
@@ -243,7 +243,7 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>The ID (primary key) of the newly inserted record if it is identity using the defined type, otherwise null</returns>
-        public static async Task<TKey> InsertAsync<TKey, TEntity>(this IDbConnection connection, TEntity entityToInsert, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static async Task<TKey> InsertAsync<TKey, TEntity>(this IDbConnection connection, TEntity entityToInsert, string identityField = null, string uniqueField = null, IDbTransaction transaction = null, int? commandTimeout = null)
         {
             var idProps = GetIdProperties(entityToInsert).ToList();
 
@@ -270,6 +270,13 @@ namespace Dapper
             BuildInsertValues<TEntity>(sb);
             sb.Append(")");
 
+            if (!string.IsNullOrEmpty(uniqueField))
+            {
+                sb.Append(" ON CONFLICT(\"");
+                sb.Append(uniqueField);
+                sb.Append("\") DO NOTHING");
+            }
+
             if (keytype == typeof(Guid))
             {
                 var guidvalue = (Guid)idProps.First().GetValue(entityToInsert, null);
@@ -286,7 +293,12 @@ namespace Dapper
 
             if ((keytype == typeof(int) || keytype == typeof(long)) && Convert.ToInt64(idProps.First().GetValue(entityToInsert, null)) == 0)
             {
-                sb.Append(";" + _getIdentitySql);
+                if (!string.IsNullOrEmpty(identityField))
+                {
+                    sb.Append(" RETURNING \"");
+                    sb.Append(identityField);
+                    sb.Append("\" AS id");
+                }
             }
             else
             {
@@ -302,9 +314,9 @@ namespace Dapper
                 return (TKey)idProps.First().GetValue(entityToInsert, null);
             }
             var r = await connection.QueryAsync(sb.ToString(), entityToInsert, transaction, commandTimeout);
-            return (TKey)r.First().id;
+            return r.Count() == 0 ? (TKey)r.FirstOrDefault() : (TKey)r.First().id;
         }
-        
+
         /// <summary>
         ///  <para>Updates a record or records in the database asynchronously</para>
         ///  <para>By default updates records in the table matching the class name</para>
@@ -395,7 +407,7 @@ namespace Dapper
         {
             var currenttype = typeof(T);
             var idProps = GetIdProperties(currenttype).ToList();
-            
+
             if (!idProps.Any())
                 throw new ArgumentException("Delete<T> only supports an entity with a [Key] or Id property");
 
