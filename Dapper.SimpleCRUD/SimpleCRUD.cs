@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data;
@@ -55,7 +55,7 @@ namespace Dapper
             StringBuilderCacheDict.AddOrUpdate(cacheKey, value, (t, v) => value);
             sb.Append(value);
         }
-        
+
         /// <summary>
         /// Returns the current dialect name
         /// </summary>
@@ -333,7 +333,7 @@ namespace Dapper
         /// <returns>The ID (primary key) of the newly inserted record if it is identity using the int? type, otherwise null</returns>
         public static int? Insert<TEntity>(this IDbConnection connection, TEntity entityToInsert, IDbTransaction transaction = null, int? commandTimeout = null)
         {
-            return Insert<int?, TEntity>(connection, entityToInsert, transaction, commandTimeout);
+            return Insert<int?, TEntity>(connection, entityToInsert, transaction: transaction, commandTimeout: commandTimeout);
         }
 
         /// <summary>
@@ -350,7 +350,7 @@ namespace Dapper
         /// <param name="transaction"></param>
         /// <param name="commandTimeout"></param>
         /// <returns>The ID (primary key) of the newly inserted record if it is identity using the defined type, otherwise null</returns>
-        public static TKey Insert<TKey, TEntity>(this IDbConnection connection, TEntity entityToInsert, IDbTransaction transaction = null, int? commandTimeout = null)
+        public static TKey Insert<TKey, TEntity>(this IDbConnection connection, TEntity entityToInsert, string identityField = null, string uniqueField = null, IDbTransaction transaction = null, int? commandTimeout = null)
         {
             var idProps = GetIdProperties(entityToInsert).ToList();
 
@@ -377,6 +377,13 @@ namespace Dapper
             BuildInsertValues<TEntity>(sb);
             sb.Append(")");
 
+            if (!string.IsNullOrEmpty(uniqueField))
+            {
+                sb.Append(" ON CONFLICT(\"");
+                sb.Append(uniqueField);
+                sb.Append("\") DO NOTHING");
+            }
+
             if (keytype == typeof(Guid))
             {
                 var guidvalue = (Guid)idProps.First().GetValue(entityToInsert, null);
@@ -394,7 +401,12 @@ namespace Dapper
 
             if ((keytype == typeof(int) || keytype == typeof(long)) && Convert.ToInt64(idProps.First().GetValue(entityToInsert, null)) == 0)
             {
-                sb.Append(";" + _getIdentitySql);
+                if (!string.IsNullOrEmpty(identityField))
+                {
+                    sb.Append(" RETURNING \"");
+                    sb.Append(identityField);
+                    sb.Append("\" AS id");
+                }
             }
             else
             {
@@ -410,7 +422,8 @@ namespace Dapper
             {
                 return (TKey)idProps.First().GetValue(entityToInsert, null);
             }
-            return (TKey)r.First().id;
+
+            return r.Count() == 0 ? (TKey)r.FirstOrDefault() : (TKey)r.First().id;
         }
 
         /// <summary>
@@ -839,8 +852,7 @@ namespace Dapper
 
             props = props.Where(p => p.GetCustomAttributes(true).Any(attr => attr.GetType().Name == typeof(EditableAttribute).Name && !IsEditable(p)) == false);
 
-
-            return props.Where(p => p.PropertyType.IsSimpleType() || IsEditable(p));//这里是关键的修改
+            return props.Where(p => p.PropertyType.IsPublic && !p.GetMethod.IsStatic || IsEditable(p));//关键的地方
         }
 
         //Determine if the Attribute has an AllowEdit key and return its boolean state
@@ -1226,6 +1238,6 @@ internal static class TypeExtension
 
     public static string CacheKey(this IEnumerable<PropertyInfo> props)
     {
-        return string.Join(",",props.Select(p=> p.DeclaringType.FullName + "." + p.Name).ToArray());
+        return string.Join(",", props.Select(p => p.DeclaringType.FullName + "." + p.Name).ToArray());
     }
 }
